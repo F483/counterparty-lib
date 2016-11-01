@@ -25,8 +25,8 @@ def test_searchrawtransactions_output():
     # general
     assert tx['txid'] == '02f95716d3c93a1e81b926d9d8d5f05b6f382c115d9ecf0dd0bc9514b0e08649'
     assert tx['confirmations'] == 6
-    assert tx['hex'] == '0100000001a7f84ec59ff69951f5dc732c77199e177ab608b030f449899a81f13c921d01f4010000001976a9146c39ee7c8f3a5ffa6121b0304a7a0de9d3d9a15288acffffffff0200a3e111000000006951210282b886c087eb37dc8182f14ba6cc3e9485ed618b95804d44aecc17c300b585b0210378ee11c3fb97054877a809ce083db292b16d971bcdc6aa4c8f92087133729d8b21037af2e06061b54cdfe3657bbc8496d69000b822e2db0c86ccbe376346a700b83353ae38847ee2000000001976a9146c39ee7c8f3a5ffa6121b0304a7a0de9d3d9a15288ac00000000'
-    assert tx['size'] == 224
+    assert tx['hex'] == '01000000000200a3e111000000006951210282b886c087eb37dc8182f14ba6cc3e9485ed618b95804d44aecc17c300b585b0210378ee11c3fb97054877a809ce083db292b16d971bcdc6aa4c8f92087133729d8b21037af2e06061b54cdfe3657bbc8496d69000b822e2db0c86ccbe376346a700b83353ae38847ee2000000001976a9146c39ee7c8f3a5ffa6121b0304a7a0de9d3d9a15288ac00000000'
+    assert tx['size'] == 158
     assert tx['version'] == 1
     assert tx['locktime'] == 0
     assert tx['time'] == None  # not mocked yet
@@ -34,7 +34,7 @@ def test_searchrawtransactions_output():
     assert tx['blockhash'] == None  # not mocked yet
 
     # vin
-    assert tx['vin'] == []  # not mocked yet
+    assert tx['vin'] == []  # mocked but we stripped out the vins from the fixtures
 
     # vout 0
     assert tx['vout'][0]['value'] == 3.0
