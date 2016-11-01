@@ -399,14 +399,10 @@ def mock_bitcoind_verbose_tx_output(tx, txid, confirmations):
     return result
 
 
-def getrawtransaction_batch(db, txhash_list, verbose=False, ignore_missing=False):
+def getrawtransaction_batch(db, txhash_list, verbose=False):
     result = {}
     for txhash in txhash_list:
-        try:
-            result[txhash] = getrawtransaction(db, txhash, verbose=verbose)
-        except Exception as e:
-            if not ignore_missing:
-                raise e
+        result[txhash] = getrawtransaction(db, txhash, verbose=verbose)
 
     return result
 
@@ -422,7 +418,7 @@ def searchrawtransactions(db, address, unconfirmed=False):
         def _getrawtransaction_batch(txhash_list, verbose=False):
             # ignore_missing=True because the baseline UTXOs from unspent_outputs.json
             #  are spending from unknown TXs and that's causing some issues
-            return getrawtransaction_batch(db, txhash_list, verbose, ignore_missing=True)
+            return getrawtransaction_batch(db, txhash_list, verbose)
 
         tx_hashes_addresses, tx_hashes_tx = extract_addresses_from_txlist(tx_hashes_tx, _getrawtransaction_batch)
 
