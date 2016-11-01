@@ -212,53 +212,39 @@ def test_usage_xcp(server_db):
     for i in range(DELAY_TIME - 1):
         util_test.create_next_block(server_db)
 
-    # get and sign payout
+    # get payout transaction
     payouts = util.api("mpc_payouts", {"state": bob_state})
     assert len(payouts) == 1
     payout = payouts[0]
     commit_script = payout["commit_script"]
+
+    # publish payout transaction
     signed_payout_rawtx = scripts.sign_payout_recover(
         get_tx, BOB_WIF, payout["payout_rawtx"],
         commit_script, SPEND_SECRET
     )
-
-    commit_transactions = util.api(
-        method="search_raw_transactions",
-        params={"address": commit_address, "unconfirmed": False}
-    )
-    assert len(commit_transactions) == 1
-
-    # publish payout transaction
     util_test.insert_raw_transaction(signed_payout_rawtx, server_db)
 
     # check payee balance
     bob_balance = util.get_balance(server_db, BOB_ADDRESS, ASSET)
     assert bob_balance == 99999990 + 17
 
-    commit_transactions = util.api(
-        method="search_raw_transactions",
-        params={"address": commit_address, "unconfirmed": False}
-    )
-    assert len(commit_transactions) == 2  # FIXME why is payout spend not found?
-
     # ===== PAYER RECOVERS CHANGE =====
 
-    # FIXME why is change note recovered?
+    # get change recoverable
+    recoverables = util.api("mpc_recoverables", {"state": alice_state})
+    assert len(recoverables["change"]) == 1
+    change = recoverables["change"][0]
 
-    # # get change recoverable
-    # recoverables = util.api("mpc_recoverables", {"state": alice_state})
-    # assert len(recoverables["change"]) == 1
-    # change = recoverables["change"]
+    # publish change recoverable
+    signed_change_rawtx = scripts.sign_change_recover(
+        get_tx, ALICE_WIF, change["change_rawtx"],
+        change["deposit_script"], change["spend_secret"]
+    )
+    util_test.insert_raw_transaction(signed_change_rawtx, server_db)
 
-    # # publish change recoverable
-    # signed_change_rawtx = scripts.sign_change_recover(
-    #     get_tx, ALICE_WIF, change["change_rawtx"],
-    #     change["deposit_script"], change["spend_secret"]
-    # )
-    # util_test.insert_raw_transaction(signed_change_rawtx, server_db)
-
-    # alice_balance = util.get_balance(server_db, ALICE_ADDRESS, ASSET)
-    # assert alice_balance == 91950000000 - 17
+    alice_balance = util.get_balance(server_db, ALICE_ADDRESS, ASSET)
+    assert alice_balance == 91950000000 - 17
 
 
 @pytest.mark.usefixtures("server_db")
