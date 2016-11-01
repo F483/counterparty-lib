@@ -306,7 +306,12 @@ def getrawtransaction(db, txid, verbose=False):
     if isinstance(txid, bytes):
         txid = binascii.hexlify(txid).decode('ascii')
 
-    tx_hex, confirmations = list(cursor.execute('''SELECT tx_hex, confirmations FROM raw_transactions WHERE tx_hash = ?''', (txid,)))[0]
+    rows = list(cursor.execute('''SELECT tx_hex, confirmations FROM raw_transactions WHERE tx_hash = ?''', (txid,)))
+
+    if not rows:
+        raise Exception("Could not find raw TX [%s]" % (txid, ))
+
+    tx_hex, confirmations = rows[0]
     cursor.close()
 
     if verbose:
@@ -351,7 +356,7 @@ def mock_bitcoind_verbose_tx_output(tx, txid, confirmations):
             'sequence': vin.nSequence
         }
 
-        # result['vin'].append(rvin)
+        result['vin'].append(rvin)
 
     for idx, vout in enumerate(ctx.vout):
         if list(vout.scriptPubKey)[-1] == bitcoinlib.core.script.OP_CHECKMULTISIG:
@@ -394,10 +399,14 @@ def mock_bitcoind_verbose_tx_output(tx, txid, confirmations):
     return result
 
 
-def getrawtransaction_batch(db, txhash_list, verbose=False):
+def getrawtransaction_batch(db, txhash_list, verbose=False, ignore_missing=False):
     result = {}
     for txhash in txhash_list:
-        result[txhash] = getrawtransaction(db, txhash, verbose=verbose)
+        try:
+            result[txhash] = getrawtransaction(db, txhash, verbose=verbose)
+        except Exception as e:
+            if not ignore_missing:
+                raise e
 
     return result
 
@@ -411,7 +420,9 @@ def searchrawtransactions(db, address, unconfirmed=False):
         tx_hashes_tx = getrawtransaction_batch(db, all_tx_hashes, verbose=True)
 
         def _getrawtransaction_batch(txhash_list, verbose=False):
-            return getrawtransaction_batch(db, txhash_list, verbose)
+            # ignore_missing=True because the baseline UTXOs from unspent_outputs.json
+            #  are spending from unknown TXs and that's causing some issues
+            return getrawtransaction_batch(db, txhash_list, verbose, ignore_missing=True)
 
         tx_hashes_addresses, tx_hashes_tx = extract_addresses_from_txlist(tx_hashes_tx, _getrawtransaction_batch)
 

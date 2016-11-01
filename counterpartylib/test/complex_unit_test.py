@@ -147,3 +147,10 @@ def test_alice_bob(server_db):
     bob_balance2 = util.get_balance(server_db, bob, 'XCP')
     assert alice_balance2 == alice_balance - v
     assert bob_balance2 == bob_balance + v
+
+    rawtransactions = util.api(
+        method="search_raw_transactions",
+        params={"address": alice, "unconfirmed": False}
+    )
+
+    assert tx3b['tx_hash'] in list(tx['txid'] for tx in rawtransactions)
