@@ -25,6 +25,13 @@ def is_hex(data):
         raise exceptions.InvalidHexData(data)
 
 
+def is_asset(dispatcher, asset):
+    is_string(asset)
+    assets = [e["asset_name"] for e in dispatcher.get("get_assets")()]
+    if asset not in assets:
+        raise exceptions.AssetDoesNotExist(asset)
+
+
 def pubkey(pubkey_hex):
     is_hex(pubkey_hex)
     sec = pycoin.serialize.h2b(pubkey_hex)

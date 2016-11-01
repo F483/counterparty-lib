@@ -801,7 +801,7 @@ class APIServer(threading.Thread):
         @dispatcher.add_method
         def mpc_set_deposit(asset, deposit_script, expected_payee_pubkey,
                             expected_spend_secret_hash):
-            return micropayments.set_deposit(asset, deposit_script,
+            return micropayments.set_deposit(dispatcher, asset, deposit_script,
                                              expected_payee_pubkey,
                                              expected_spend_secret_hash)
 
@@ -818,8 +818,8 @@ class APIServer(threading.Thread):
             fee = 10000  # FIXME fee not needed, determind by depost btc - dust
             regular_dust_size = config.DEFAULT_REGULAR_DUST_SIZE
             return micropayments.create_commit(
-                dispatcher, state, quantity, revoke_secret_hash, delay_time,
-                netcode, fee, regular_dust_size
+                dispatcher, state, quantity, revoke_secret_hash,
+                delay_time, netcode, fee, regular_dust_size
             )
 
         @dispatcher.add_method
@@ -864,7 +864,6 @@ class APIServer(threading.Thread):
 
         @dispatcher.add_method
         def mpc_deposit_ttl(state, clearance=0):
-            # FIXME change to return commits_until_expired
             netcode = "XTN" if config.TESTNET else "BTC"
             return micropayments.deposit_ttl(dispatcher, state,
                                              clearance, netcode)

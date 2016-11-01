@@ -3,6 +3,13 @@
 # License: MIT (see LICENSE file)
 
 
+class AssetDoesNotExist(Exception):
+
+    def __init__(self, asset):
+        msg = "Asset {0} does not exist!"
+        super(AssetDoesNotExist, self).__init__(msg.format(asset))
+
+
 class NoRevokeSecretForCommit(Exception):
 
     def __init__(self, commit_script, script_revoke_secret_hash):

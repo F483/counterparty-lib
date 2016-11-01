@@ -84,15 +84,15 @@ def make_deposit(dispatcher, asset, payer_pubkey, payee_pubkey,
     }
 
 
-def set_deposit(asset, deposit_script, expected_payee_pubkey,
+def set_deposit(dispatcher, asset, deposit_script, expected_payee_pubkey,
                 expected_spend_secret_hash):
 
     # validate input
-    # FIXME validate asset
     validate.pubkey(expected_payee_pubkey)
     validate.hash160(expected_spend_secret_hash)
     validate.deposit_script(deposit_script, expected_payee_pubkey,
                             expected_spend_secret_hash)
+    validate.is_asset(dispatcher, asset)
 
     # setup initial state
     state = copy.deepcopy(INITIAL_STATE)
@@ -198,7 +198,7 @@ def revoke_hashes_until(dispatcher, state, quantity, surpass):
     for commit in reversed(state["commits_active"][:]):
         asset = state["asset"]
         rawtx = commit["rawtx"]
-        commit_quantity = _get_quantity(dispatcher, asset, rawtx)
+        commit_quantity = get_quantity(dispatcher, asset, rawtx)
         exact_match = quantity == commit_quantity
         if quantity < commit_quantity:
             script = commit["script"]
@@ -248,7 +248,7 @@ def transferred_amount(dispatcher, state):
         return 0
     _order_active(dispatcher, state)
     commit = state["commits_active"][-1]
-    return _get_quantity(dispatcher, state["asset"], commit["rawtx"])
+    return get_quantity(dispatcher, state["asset"], commit["rawtx"])
 
 
 def payouts(dispatcher, state, netcode, fee, regular_dust_size):
@@ -459,7 +459,7 @@ def _create_tx(dispatcher, asset, source_address, dest_address, quantity,
         fee=fee,
         disable_utxo_locks=True
     )
-    assert(_get_quantity(dispatcher, asset, rawtx) == quantity)
+    assert(get_quantity(dispatcher, asset, rawtx) == quantity)
     return rawtx
 
 
@@ -491,9 +491,11 @@ def _get_address_balance(dispatcher, asset, address):
     return asset_balance, btc_balance
 
 
-def _get_quantity(dispatcher, expected_asset, rawtx):
+def get_quantity(dispatcher, expected_asset, rawtx):
     result = dispatcher.get("get_tx_info")(tx_hex=rawtx)
     src, dest, btc, fee, data = result
+    if not data:
+        raise ValueError("No data for given transaction!")
     result = dispatcher.get("unpack")(data_hex=data)
     message_type_id, unpacked = result
     if message_type_id != 0:
@@ -517,7 +519,7 @@ def _validate_transfer_quantity(dispatcher, state, quantity, netcode):
 def _order_active(dispatcher, state):
 
     def sort_func(entry):
-        return _get_quantity(dispatcher, state["asset"], entry["rawtx"])
+        return get_quantity(dispatcher, state["asset"], entry["rawtx"])
     state["commits_active"].sort(key=sort_func)
 
 
