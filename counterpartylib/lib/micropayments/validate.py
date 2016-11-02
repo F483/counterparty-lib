@@ -123,12 +123,23 @@ def commit_script(commit_script_hex, deposit_script_hex):
                                                   deposit_spend_hash)
 
 
-def commit_rawtx(deposit_utxos, commit_rawtx_hex,
+def is_send_asset(dispatcher, expected_asset, rawtx):
+    src, dest, btc, fee, data = dispatcher.get("get_tx_info")(tx_hex=rawtx)
+    if not data:
+        raise ValueError("No data for given transaction!")
+    message_type_id, unpacked = dispatcher.get("unpack")(data_hex=data)
+    if expected_asset != unpacked["asset"]:
+        msg = "Incorrect asset: expected {0} != {1} found!"
+        raise ValueError(msg.format(expected_asset, unpacked["asset"]))
+    return message_type_id, unpacked
+
+
+def commit_rawtx(dispatcher, deposit_utxos, commit_rawtx,
                  expected_asset, expected_deposit_script_hex,
                  expected_commit_script_hex, netcode):
 
     # is a bitcoin transaction
-    tx = Tx.from_hex(commit_rawtx_hex)
+    tx = Tx.from_hex(commit_rawtx)
 
     # validate sends to commit script
     commit_address = util.script_address(
@@ -155,8 +166,7 @@ def commit_rawtx(deposit_utxos, commit_rawtx_hex,
                 found = True
                 deposit_utxos.remove(utxo)  # prevent reuse of utxo
                 break
-        if not found:
-            assert(False)  # spends non deposit utxo
+        assert(found)  # spends only deposit utxos
 
         # scriptsig is correct
         ref_scriptsig = scripts.compile_commit_scriptsig(
@@ -165,8 +175,9 @@ def commit_rawtx(deposit_utxos, commit_rawtx_hex,
         scripts.validate(ref_scriptsig, util.b2h(txin.script))
 
         # FIXME validate signed by payer
+        # FIXME validate payer signature
 
-    # FIXME validate is counterparty send for expected asset
+    is_send_asset(dispatcher, expected_asset, commit_rawtx)
 
 
 def state(state_data):

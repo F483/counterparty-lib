@@ -157,8 +157,10 @@ def add_commit(dispatcher, state, commit_rawtx, commit_script, netcode):
         state["deposit_script"], netcode=netcode
     )
     deposit_utxos = dispatcher.get("get_unspent_txouts")(deposit_address)
-    validate.commit_rawtx(deposit_utxos, commit_rawtx, state["asset"],
-                          state["deposit_script"], commit_script, netcode)
+    validate.commit_rawtx(
+        dispatcher, deposit_utxos, commit_rawtx, state["asset"],
+        state["deposit_script"], commit_script, netcode
+    )
 
     # update state
     script = commit_script
@@ -492,18 +494,9 @@ def _get_address_balance(dispatcher, asset, address):
 
 
 def get_quantity(dispatcher, expected_asset, rawtx):
-    result = dispatcher.get("get_tx_info")(tx_hex=rawtx)
-    src, dest, btc, fee, data = result
-    if not data:
-        raise ValueError("No data for given transaction!")
-    result = dispatcher.get("unpack")(data_hex=data)
-    message_type_id, unpacked = result
-    if message_type_id != 0:
-        msg = "Incorrect message type id: {0} != {1}"
-        raise ValueError(msg.format(message_type_id, 0))
-    if expected_asset != unpacked["asset"]:
-        msg = "Incorrect asset: expected {0} != {1} found!"
-        raise ValueError(msg.format(expected_asset, unpacked["asset"]))
+    message_type_id, unpacked = validate.is_send_asset(
+        dispatcher, expected_asset, rawtx
+    )
     return unpacked["quantity"]
 
 
@@ -589,7 +582,7 @@ def _validate_deposit(dispatcher, asset, payer_pubkey, payee_pubkey,
     validate.hash160(spend_secret_hash)
     validate.is_sequence(expire_time)
     validate.is_quantity(quantity)
-    # FIXME validate asset
+    validate.is_asset(dispatcher, asset)
 
     # get balances
     address = keys.address_from_pubkey(payer_pubkey, netcode)
