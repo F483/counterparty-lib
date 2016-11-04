@@ -328,6 +328,39 @@ def recoverables(dispatcher, state, netcode, fee, regular_dust_size):
     return recoverables
 
 
+def get_balance(dispatcher, asset, address):
+    result = dispatcher.get("get_balances")(filters=[
+        {'field': 'address', 'op': '==', 'value': address},
+        {'field': 'asset', 'op': '==', 'value': asset},
+    ])
+    if not result:
+        return 0, 0
+    asset_balance = result[0]["quantity"]
+    utxos = dispatcher.get("get_unspent_txouts")(
+        address=address, unconfirmed=False
+    )
+    btc_balance = sum(map(lambda utxo: util.to_satoshis(utxo["amount"]), utxos))
+    return asset_balance, btc_balance
+
+
+def get_quantity(dispatcher, expected_asset, rawtx):
+    result = validate.is_send_tx(dispatcher, rawtx, expected_asset)
+    return result["unpacked"]["quantity"]
+
+
+def deposit_ttl(dispatcher, state, clearance, netcode):
+    validate.is_unsigned(clearance)
+    validate.is_state(dispatcher, state, netcode)
+    script = state["deposit_script"]
+    t = scripts.get_deposit_expire_time(script)
+    confirms, asset_balance, btc_balance = _deposit_status(
+        dispatcher, state["asset"], script, netcode
+    )
+    if confirms == 0 and asset_balance == 0 and btc_balance == 0:
+        return None  # no deposit made yet
+    return max(t - (confirms + clearance), 0)
+
+
 def _deposit_status(dispatcher, asset, script, netcode):
     address = util.script_address(script, netcode)
     transactions = dispatcher.get("search_raw_transactions")(
@@ -479,31 +512,12 @@ def _can_spend_from_address(dispatcher, asset, address):
     return latest_confirms > 0
 
 
-def get_balance(dispatcher, asset, address):
-    result = dispatcher.get("get_balances")(filters=[
-        {'field': 'address', 'op': '==', 'value': address},
-        {'field': 'asset', 'op': '==', 'value': asset},
-    ])
-    if not result:
-        return 0, 0
-    asset_balance = result[0]["quantity"]
-    utxos = dispatcher.get("get_unspent_txouts")(
-        address=address, unconfirmed=False
-    )
-    btc_balance = sum(map(lambda utxo: util.to_satoshis(utxo["amount"]), utxos))
-    return asset_balance, btc_balance
-
-
-def get_quantity(dispatcher, expected_asset, rawtx):
-    result = validate.is_send_tx(dispatcher, rawtx, expected_asset)
-    return result["unpacked"]["quantity"]
-
-
 def _validate_transfer_quantity(dispatcher, state, quantity, netcode):
     script = state["deposit_script"]
     confirms, asset_balance, btc_balance = _deposit_status(
         dispatcher, state["asset"], script, netcode
     )
+    # FIXME check btc balance > fee
     if quantity > asset_balance:
         raise exceptions.InvalidTransferQuantity(quantity, asset_balance)
 
@@ -559,19 +573,6 @@ def _can_deposit_spend(dispatcher, state, netcode):
     script = state["deposit_script"]
     address = util.script_address(script, netcode)
     return _can_spend_from_address(dispatcher, state["asset"], address)
-
-
-def deposit_ttl(dispatcher, state, clearance, netcode):
-    validate.is_unsigned(clearance)
-    validate.is_state(dispatcher, state, netcode)
-    script = state["deposit_script"]
-    t = scripts.get_deposit_expire_time(script)
-    confirms, asset_balance, btc_balance = _deposit_status(
-        dispatcher, state["asset"], script, netcode
-    )
-    if confirms == 0 and asset_balance == 0 and btc_balance == 0:
-        return None  # no deposit made yet
-    return max(t - (confirms + clearance), 0)
 
 
 def _validate_deposit(dispatcher, asset, payer_pubkey, payee_pubkey,

@@ -162,6 +162,14 @@ def commit_script(commit_script_hex, deposit_script_hex):
                                                   deposit_spend_hash)
 
 
+def tx_signature(dispatcher, rawtx):
+    def get_rawtx(txid):
+        return dispatcher.get("getrawtransaction")(tx_hash=txid)
+    tx = util.load_tx(get_rawtx, rawtx)
+    if tx.bad_signature_count() != 0:
+        raise exceptions.InvalidSignature(rawtx)
+
+
 def is_send_tx(dispatcher, rawtx, expected_asset=None,
                expected_src=None, expected_dest=None,
                validate_signature=False):
@@ -180,11 +188,7 @@ def is_send_tx(dispatcher, rawtx, expected_asset=None,
         raise exceptions.AssetMissmatch(expected_asset, unpacked["asset"])
 
     if validate_signature:
-        def get_rawtx(txid):
-            return dispatcher.get("getrawtransaction")(tx_hash=txid)
-        tx = util.load_tx(get_rawtx, rawtx)
-        if tx.bad_signature_count() != 0:
-            raise exceptions.InvalidSignature(rawtx)
+        tx_signature(dispatcher, rawtx)
 
     return {
         "src":src, "dest": dest, "btc": btc, "fee": fee, "data": data,
