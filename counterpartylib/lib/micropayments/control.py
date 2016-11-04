@@ -160,6 +160,7 @@ def add_commit(dispatcher, state, commit_rawtx, commit_script, netcode):
         dispatcher, commit_rawtx, state["asset"],
         state["deposit_script"], commit_script, netcode
     )
+    # FIXME how to validate/test that inputs are confirmed?
 
     # update state
     script = commit_script

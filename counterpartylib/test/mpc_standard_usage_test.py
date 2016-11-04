@@ -210,6 +210,7 @@ def test_usage_xcp(server_db):
 
     # let delay time pass
     for i in range(DELAY_TIME - 1):
+        assert len(util.api("mpc_payouts", {"state": bob_state})) == 0
         util_test.create_next_block(server_db)
 
     # get payout transaction
