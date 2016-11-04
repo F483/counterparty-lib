@@ -830,21 +830,26 @@ class APIServer(threading.Thread):
 
         @dispatcher.add_method
         def mpc_revoke_hashes_until(state, quantity, surpass=False):
+            netcode = "XTN" if config.TESTNET else "BTC"
             return micropayments.revoke_hashes_until(
-                dispatcher, state, quantity, surpass
+                dispatcher, state, quantity, surpass, netcode
             )
 
         @dispatcher.add_method
         def mpc_revoke_all(state, secrets):
-            return micropayments.revoke_all(state, secrets)
+            netcode = "XTN" if config.TESTNET else "BTC"
+            return micropayments.revoke_all(dispatcher, state,
+                                            secrets, netcode)
 
         @dispatcher.add_method
         def mpc_highest_commit(state):
-            return micropayments.highest_commit(dispatcher, state)
+            netcode = "XTN" if config.TESTNET else "BTC"
+            return micropayments.highest_commit(dispatcher, state, netcode)
 
         @dispatcher.add_method
         def mpc_transferred_amount(state):
-            return micropayments.transferred_amount(dispatcher, state)
+            netcode = "XTN" if config.TESTNET else "BTC"
+            return micropayments.transferred_amount(dispatcher, state, netcode)
 
         @dispatcher.add_method
         def mpc_payouts(state):

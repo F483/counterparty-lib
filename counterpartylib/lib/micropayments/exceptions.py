@@ -3,6 +3,34 @@
 # License: MIT (see LICENSE file)
 
 
+class InvalidSignature(Exception):
+
+    def __init__(self, rawtx):
+        msg = "Invalid or incomplete signature for {0}"
+        super(InvalidSignature, self).__init__(msg.format(rawtx))
+
+
+class AssetMissmatch(Exception):
+
+    def __init__(self, expected, found):
+        msg = "Incorrect asset: expected {0} != {1} found!"
+        super(AssetMissmatch, self).__init__(msg.format(expected, found))
+
+
+class SourceMissmatch(Exception):
+
+    def __init__(self, expected, found):
+        msg = "Incorrect source address: expected {0} != {1} found!"
+        super(SourceMissmatch, self).__init__(msg.format(expected, found))
+
+
+class DestinationMissmatch(Exception):
+
+    def __init__(self, expected, found):
+        msg = "Incorrect destination address: expected {0} != {1} found!"
+        super(DestinationMissmatch, self).__init__(msg.format(expected, found))
+
+
 class AssetDoesNotExist(Exception):
 
     def __init__(self, asset):

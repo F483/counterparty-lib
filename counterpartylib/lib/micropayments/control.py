@@ -105,7 +105,7 @@ def set_deposit(dispatcher, asset, deposit_script, expected_payee_pubkey,
 def request_commit(dispatcher, state, quantity, revoke_secret_hash, netcode):
 
     # validate input
-    validate.state(state)
+    validate.is_state(dispatcher, state, netcode)
     validate.is_quantity(quantity)
     validate.hash160(revoke_secret_hash)
     _validate_transfer_quantity(dispatcher, state, quantity, netcode)
@@ -119,7 +119,7 @@ def create_commit(dispatcher, state, quantity, revoke_secret_hash,
                   delay_time, netcode, fee, regular_dust_size):
 
     # validate input
-    validate.state(state)
+    validate.is_state(dispatcher, state, netcode)
     validate.is_quantity(quantity)
     validate.hash160(revoke_secret_hash)
     validate.is_sequence(delay_time)
@@ -151,14 +151,13 @@ def create_commit(dispatcher, state, quantity, revoke_secret_hash,
 def add_commit(dispatcher, state, commit_rawtx, commit_script, netcode):
 
     # validate input
-    validate.state(state)
+    validate.is_state(dispatcher, state, netcode)
     validate.commit_script(commit_script, state["deposit_script"])
     deposit_address = util.script_address(
         state["deposit_script"], netcode=netcode
     )
-    deposit_utxos = dispatcher.get("get_unspent_txouts")(deposit_address)
-    validate.commit_rawtx(
-        dispatcher, deposit_utxos, commit_rawtx, state["asset"],
+    validate.is_commit_rawtx(
+        dispatcher, commit_rawtx, state["asset"],
         state["deposit_script"], commit_script, netcode
     )
 
@@ -187,10 +186,10 @@ def add_commit(dispatcher, state, commit_rawtx, commit_script, netcode):
     )
 
 
-def revoke_hashes_until(dispatcher, state, quantity, surpass):
+def revoke_hashes_until(dispatcher, state, quantity, surpass, netcode):
 
     # validate input
-    validate.state(state)
+    validate.is_state(dispatcher, state, netcode)
     validate.is_unsigned(quantity)
 
     # get revoke secret hashes
@@ -216,10 +215,10 @@ def revoke_hashes_until(dispatcher, state, quantity, surpass):
     return revoke_secret_hashes
 
 
-def revoke_all(state, secrets):
+def revoke_all(dispatcher, state, secrets, netcode):
 
     # validate input
-    validate.state(state)
+    validate.is_state(dispatcher, state, netcode)
     validate.is_list(secrets)
     for secret in secrets:
         validate.is_hex(secret)
@@ -230,10 +229,10 @@ def revoke_all(state, secrets):
     return state
 
 
-def highest_commit(dispatcher, state):
+def highest_commit(dispatcher, state, netcode):
 
     # validate input
-    validate.state(state)
+    validate.is_state(dispatcher, state, netcode)
 
     _order_active(dispatcher, state)
     if len(state["commits_active"]) == 0:
@@ -241,10 +240,10 @@ def highest_commit(dispatcher, state):
     return state["commits_active"][-1]
 
 
-def transferred_amount(dispatcher, state):
+def transferred_amount(dispatcher, state, netcode):
 
     # validate input
-    validate.state(state)
+    validate.is_state(dispatcher, state, netcode)
 
     if len(state["commits_active"]) == 0:
         return 0
@@ -256,7 +255,7 @@ def transferred_amount(dispatcher, state):
 def payouts(dispatcher, state, netcode, fee, regular_dust_size):
 
     # validate input
-    validate.state(state)
+    validate.is_state(dispatcher, state, netcode)
 
     # find recoverables and make payout transactions
     payouts = []
@@ -278,7 +277,7 @@ def payouts(dispatcher, state, netcode, fee, regular_dust_size):
 def recoverables(dispatcher, state, netcode, fee, regular_dust_size):
 
     # validate input
-    validate.state(state)
+    validate.is_state(dispatcher, state, netcode)
 
     deposit_script = state["deposit_script"]
     payer_pubkey = scripts.get_deposit_payer_pubkey(deposit_script)
@@ -335,9 +334,7 @@ def _deposit_status(dispatcher, asset, script, netcode):
     if len(transactions) == 0:
         return 0, 0, 0
     oldest_confirms = transactions[0].get("confirmations", 0)
-    asset_balance, btc_balance = _get_address_balance(
-        dispatcher, asset, address
-    )
+    asset_balance, btc_balance = get_balance(dispatcher, asset, address)
     return oldest_confirms, asset_balance, btc_balance
 
 
@@ -352,9 +349,7 @@ def _recover_tx(dispatcher, asset, dest_address, script, netcode, fee,
 
     # get channel info
     src_address = util.script_address(script, netcode)
-    asset_balance, btc_balance = _get_address_balance(
-        dispatcher, asset, src_address
-    )
+    asset_balance, btc_balance = get_balance(dispatcher, asset, src_address)
 
     # create expire tx
     rawtx = _create_tx(
@@ -414,9 +409,7 @@ def _create_commit(dispatcher, asset, deposit_script, quantity,
     # create tx
     src_address = util.script_address(deposit_script, netcode)
     dest_address = util.script_address(commit_script, netcode)
-    asset_balance, btc_balance = _get_address_balance(
-        dispatcher, asset, src_address
-    )
+    asset_balance, btc_balance = get_balance(dispatcher, asset, src_address)
     if quantity == asset_balance:  # spend all btc as change tx not needed
         extra_btc = btc_balance - fee
     else:  # provide extra btc for future payout/revoke tx fees
@@ -468,10 +461,11 @@ def _create_tx(dispatcher, asset, source_address, dest_address, quantity,
 def _can_spend_from_address(dispatcher, asset, address):
 
     # has assets, btc
-    if _get_address_balance(dispatcher, asset, address) == (0, 0):
+    asset_balance, btc_balance = get_balance(dispatcher, asset, address)
+    if (asset_balance, btc_balance) == (0, 0):
         return False
 
-    # TODO check if btc > fee
+    # FIXME check if btc > fee and btc - fee > dust
 
     # can only spend if all txs confirmed
     transactions = dispatcher.get("search_raw_transactions")(address)
@@ -479,13 +473,12 @@ def _can_spend_from_address(dispatcher, asset, address):
     return latest_confirms > 0
 
 
-def _get_address_balance(dispatcher, asset, address):
-    # FIXME test ignores unconfirmed
+def get_balance(dispatcher, asset, address):
     result = dispatcher.get("get_balances")(filters=[
         {'field': 'address', 'op': '==', 'value': address},
         {'field': 'asset', 'op': '==', 'value': asset},
     ])
-    if not result:  # TODO what causes this?
+    if not result:
         return 0, 0
     asset_balance = result[0]["quantity"]
     utxos = dispatcher.get("get_unspent_txouts")(address)
@@ -494,10 +487,8 @@ def _get_address_balance(dispatcher, asset, address):
 
 
 def get_quantity(dispatcher, expected_asset, rawtx):
-    message_type_id, unpacked = validate.is_send_asset(
-        dispatcher, expected_asset, rawtx
-    )
-    return unpacked["quantity"]
+    result = validate.is_send_tx(dispatcher, rawtx, expected_asset)
+    return result["unpacked"]["quantity"]
 
 
 def _validate_transfer_quantity(dispatcher, state, quantity, netcode):
@@ -561,7 +552,7 @@ def _can_deposit_spend(dispatcher, state, netcode):
 
 def deposit_ttl(dispatcher, state, clearance, netcode):
     validate.is_unsigned(clearance)
-    validate.state(state)
+    validate.is_state(dispatcher, state, netcode)
     script = state["deposit_script"]
     t = scripts.get_deposit_expire_time(script)
     confirms, asset_balance, btc_balance = _deposit_status(
@@ -586,9 +577,7 @@ def _validate_deposit(dispatcher, asset, payer_pubkey, payee_pubkey,
 
     # get balances
     address = keys.address_from_pubkey(payer_pubkey, netcode)
-    asset_balance, btc_balance = _get_address_balance(
-        dispatcher, asset, address
-    )
+    asset_balance, btc_balance = get_balance(dispatcher, asset, address)
 
     # check asset balance
     if asset_balance < quantity:

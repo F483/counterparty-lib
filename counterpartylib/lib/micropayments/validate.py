@@ -6,10 +6,49 @@
 import six
 import re
 import pycoin
+import jsonschema
 from pycoin.tx import Tx
 from . import exceptions
 from micropayment_core import scripts
 from micropayment_core import util
+
+
+_TYPE_HEX = {"type": "string", "pattern": "^[a-f0-9]*$"}
+
+_STATE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "asset": {"type": "string"},
+        "deposit_script": _TYPE_HEX,
+        "commits_requested": {"type": "array", "items": _TYPE_HEX},
+        "commits_active": {"type": "array", "items": {
+            "type": "object",
+            "properties": {
+                "rawtx": _TYPE_HEX,
+                "script": _TYPE_HEX,
+            },
+            "required": ["rawtx", "script"],
+            "additionalProperties": False
+        }},
+        "commits_revoked": {"type": "array", "items": {
+            "type": "object",
+            "properties": {
+                "script": _TYPE_HEX,
+                "revoke_secret": _TYPE_HEX,
+            },
+            "required": ["script", "revoke_secret"],
+            "additionalProperties": False
+        }}
+    },
+    "required": [
+        "asset",
+        "deposit_script",
+        "commits_requested",
+        "commits_active",
+        "commits_revoked"
+    ],
+    "additionalProperties": False
+}
 
 
 def is_string(s):
@@ -123,69 +162,96 @@ def commit_script(commit_script_hex, deposit_script_hex):
                                                   deposit_spend_hash)
 
 
-def is_send_asset(dispatcher, expected_asset, rawtx):
+def is_send_tx(dispatcher, rawtx, expected_asset=None,
+               expected_src=None, expected_dest=None,
+               validate_signature=False):
+
     src, dest, btc, fee, data = dispatcher.get("get_tx_info")(tx_hex=rawtx)
     if not data:
         raise ValueError("No data for given transaction!")
     message_type_id, unpacked = dispatcher.get("unpack")(data_hex=data)
-    if expected_asset != unpacked["asset"]:
-        msg = "Incorrect asset: expected {0} != {1} found!"
-        raise ValueError(msg.format(expected_asset, unpacked["asset"]))
-    return message_type_id, unpacked
+    assert(message_type_id == 0)
+
+    if expected_src is not None and expected_src != src:
+        raise exceptions.SourceMissmatch(expected_src, src)
+    if expected_dest is not None and expected_dest != dest:
+        raise exceptions.DestinationMissmatch(expected_dest, dest)
+    if expected_asset is not None and expected_asset != unpacked["asset"]:
+        raise exceptions.AssetMissmatch(expected_asset, unpacked["asset"])
+
+    if validate_signature:
+        def get_rawtx(txid):
+            return dispatcher.get("getrawtransaction")(tx_hash=txid)
+        tx = util.load_tx(get_rawtx, rawtx)
+        if tx.bad_signature_count() != 0:
+            raise exceptions.InvalidSignature(rawtx)
+
+    return {
+        "src":src, "dest": dest, "btc": btc, "fee": fee, "data": data,
+        "message_type_id": message_type_id, "unpacked": unpacked,
+    }
 
 
-def commit_rawtx(dispatcher, deposit_utxos, commit_rawtx,
-                 expected_asset, expected_deposit_script_hex,
-                 expected_commit_script_hex, netcode):
+def is_commit_rawtx(dispatcher, commit_rawtx, expected_asset,
+                    expected_deposit_script_hex, expected_commit_script_hex,
+                    netcode, validate_signature=False):
 
-    # is a bitcoin transaction
-    tx = Tx.from_hex(commit_rawtx)
-
-    # validate sends to commit script
     commit_address = util.script_address(
         expected_commit_script_hex, netcode=netcode
     )
     deposit_address = util.script_address(
         expected_deposit_script_hex, netcode=netcode
     )
-    allowed_outputs = [commit_address, deposit_address]
-
-    for txout in tx.txs_out:
-        asm = pycoin.tx.script.tools.disassemble(txout.script)
-        if re.match("^OP_RETURN", asm):
-            continue  # ignore expected counterparty op return output
-        assert(txout.bitcoin_address(netcode=netcode) in allowed_outputs)
-
-    for txin in tx.txs_in:
-
-        # must spend only deposit utxos
-        found = False
-        for utxo in deposit_utxos[:]:
-            txid = util.b2h_rev(txin.previous_hash)
-            if (utxo["txid"] == txid and utxo["vout"] == txin.previous_index):
-                found = True
-                deposit_utxos.remove(utxo)  # prevent reuse of utxo
-                break
-        assert(found)  # spends only deposit utxos
-
-        # scriptsig is correct
-        ref_scriptsig = scripts.compile_commit_scriptsig(
-            "deadbeef", "deadbeef", expected_deposit_script_hex
-        )
-        scripts.validate(ref_scriptsig, util.b2h(txin.script))
-
-        # FIXME validate signed by payer
-        # FIXME validate payer signature
-
-    is_send_asset(dispatcher, expected_asset, commit_rawtx)
+    is_send_tx(
+        dispatcher, commit_rawtx, expected_asset=expected_asset,
+        expected_src=deposit_address, expected_dest=commit_address,
+        validate_signature=validate_signature
+    )
 
 
-def state(state_data):
-    # FIXME add json schema
-    # FIXME add content validation
+def is_state(dispatcher, state_data, netcode):
+    jsonschema.validate(state_data, _STATE_SCHEMA)
 
     # commits scripts must be a set
-    active_scripts = [c["script"] for c in state_data["commits_active"]]
-    assert(len(state_data["commits_active"]) == len(set(active_scripts)))
-    revoked_scripts = [c["script"] for c in state_data["commits_revoked"]]
-    assert(len(state_data["commits_revoked"]) == len(set(revoked_scripts)))
+    s_active = [c["script"] for c in state_data["commits_active"]]
+    s_revoked = [c["script"] for c in state_data["commits_revoked"]]
+    assert(len(s_active + s_revoked) == len(set(s_active + s_revoked)))
+
+    # asset is valid
+    is_asset(dispatcher, state_data["asset"])
+
+    # deposit script is valid
+    deposit_script = state_data["deposit_script"]
+    deposit_address = util.script_address(deposit_script, netcode=netcode)
+    deposit_spend_hash = scripts.get_deposit_spend_secret_hash(deposit_script)
+    scripts.validate_deposit_script(deposit_script)
+
+    # validate commits revoked
+    for revoked in state_data["commits_revoked"]:
+
+        # is commit script
+        scripts.validate_commit_script(revoked["script"])
+
+        # spend secret hash matches deposit
+        r_spend_hash = scripts.get_commit_spend_secret_hash(revoked["script"])
+        assert(r_spend_hash == deposit_spend_hash)
+
+        # revoke secret matches script secret hash
+        revoke_hash = scripts.get_commit_revoke_secret_hash(revoked["script"])
+        assert(revoke_hash == util.hash160hex(revoked["revoke_secret"]))
+
+    # validate commits active
+    for active in state_data["commits_active"]:
+
+        # is commit script
+        scripts.validate_commit_script(active["script"])
+
+        # spend secret hash matches deposit
+        a_spend_hash = scripts.get_commit_spend_secret_hash(active["script"])
+        assert(a_spend_hash == deposit_spend_hash)
+
+        # rawtx and asset match
+        is_commit_rawtx(
+            dispatcher, active["rawtx"], state_data["asset"],
+            deposit_script, active["script"], netcode
+        )

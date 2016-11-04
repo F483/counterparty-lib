@@ -1,16 +1,36 @@
-from counterpartylib.lib.micropayments import validate
-from counterpartylib.lib.micropayments import exceptions
+import tempfile
+import pytest
+
+# this is require near the top to do setup of the test suite
+# from counterpartylib.test import conftest
+
+from counterpartylib.test import util_test
+from counterpartylib.test.util_test import CURR_DIR
+from counterpartylib.test.fixtures.params import DP
+from counterpartylib.lib import util
+from micropayment_core.keys import address_from_wif
 from micropayment_core.keys import pubkey_from_wif
+from counterpartylib.lib.micropayments.control import get_quantity
+from counterpartylib.lib.micropayments.control import get_balance
+from counterpartylib.lib.micropayments import exceptions
+from counterpartylib.lib.micropayments import validate
+from counterpartylib.lib.api import dispatcher
 from micropayment_core.keys import generate_wif
 from micropayment_core.scripts import compile_deposit_script
 from micropayment_core.scripts import compile_commit_script
 from micropayment_core.scripts import InvalidScript
 
 
-ALICE_WIF = generate_wif(netcode="XTN")
+FIXTURE_SQL_FILE = CURR_DIR + '/fixtures/scenarios/unittest_fixture.sql'
+FIXTURE_DB = tempfile.gettempdir() + '/fixtures.unittest_fixture.db'
+
+
+ALICE_WIF = DP["addresses"][0][2]
 ALICE_PUBKEY = pubkey_from_wif(ALICE_WIF)
+ALICE_ADDRESS = address_from_wif(ALICE_WIF)
 BOB_WIF = generate_wif(netcode="XTN")
 BOB_PUBKEY = pubkey_from_wif(BOB_WIF)
+BOB_ADDRESS = address_from_wif(BOB_WIF)
 SPEND_SECRET_HASH = "a7ec62542b0d393d43442aadf8d55f7da1e303cb"
 DEPOSIT_SCRIPT = compile_deposit_script(
     ALICE_PUBKEY, BOB_PUBKEY, SPEND_SECRET_HASH, 42
@@ -258,9 +278,30 @@ def test_commit_script():
         pass
 
 
-def test_commit_rawtx():
-    pass
+@pytest.mark.usefixtures("server_db")
+@pytest.mark.usefixtures("api_server")
+def test_is_send_tx():
+    rawtx = util.api('create_send', {
+        'source': ALICE_ADDRESS,
+        'destination': BOB_ADDRESS,
+        'asset': 'XCP',
+        'quantity': 33
+    })
 
+    try:
+        validate.is_send_tx(dispatcher, rawtx, expected_dest="foo")
+        assert False
+    except exceptions.DestinationMissmatch:
+        pass
 
-def test_state():
-    pass  # TODO test
+    try:
+        validate.is_send_tx(dispatcher, rawtx, expected_src="foo")
+        assert False
+    except exceptions.SourceMissmatch:
+        pass
+
+    try:
+        validate.is_send_tx(dispatcher, rawtx, validate_signature=True)
+        assert False
+    except exceptions.InvalidSignature:
+        pass
