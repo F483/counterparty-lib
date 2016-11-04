@@ -123,3 +123,49 @@ def test_insufficient_btc_funds(server_db):
         assert False
     except util.RPCError as e:
         assert "InsufficientFunds" in str(e)
+
+
+@pytest.mark.usefixtures("server_db")
+@pytest.mark.usefixtures("api_server")
+def test_ignores_unconfirmed_funds(server_db):
+    emma_wif = generate_wif(netcode="XTN")
+    emma_pubkey = pubkey_from_wif(emma_wif)
+    emma_address = address_from_wif(emma_wif)
+    fred_pubkey = pubkey_from_wif(generate_wif(netcode="XTN"))
+
+    rawtx = util.api('create_send', {
+        'source': ALICE_ADDRESS,
+        'destination': emma_address,
+        'asset': 'XCP',
+        'quantity': 42,
+        'regular_dust_size': 300000
+    })
+
+    txs = util.api(
+        method="search_raw_transactions",
+        params={"address": emma_address, "unconfirmed": True}
+    )
+    assert(len(txs) == 0)
+    util_test.insert_unconfirmed_raw_transaction(rawtx, server_db)
+    txs = util.api(
+        method="search_raw_transactions",
+        params={"address": emma_address, "unconfirmed": True}
+    )
+    assert(len(txs) == 1)
+
+    try:
+        quantity = 42
+        util.api(
+            method="mpc_make_deposit",
+            params={
+                "asset": "XCP",
+                "payer_pubkey": emma_pubkey,
+                "payee_pubkey": fred_pubkey,
+                "spend_secret_hash": SPEND_SECRET_HASH,
+                "expire_time": EXPIRE_TIME,  # in blocks
+                "quantity": quantity  # in satoshis
+            }
+        )
+        assert False
+    except util.RPCError as e:
+        assert "InsufficientFunds" in str(e)

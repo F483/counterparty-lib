@@ -779,6 +779,7 @@ class APIServer(threading.Thread):
 
         @dispatcher.add_method
         def sendrawtransaction(tx_hex):
+            # FIXME validate signed
             return backend.sendrawtransaction(tx_hex)
 
         #########################

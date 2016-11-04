@@ -330,7 +330,9 @@ def recoverables(dispatcher, state, netcode, fee, regular_dust_size):
 
 def _deposit_status(dispatcher, asset, script, netcode):
     address = util.script_address(script, netcode)
-    transactions = dispatcher.get("search_raw_transactions")(address)
+    transactions = dispatcher.get("search_raw_transactions")(
+        address=address, unconfirmed=False
+    )
     if len(transactions) == 0:
         return 0, 0, 0
     oldest_confirms = transactions[0].get("confirmations", 0)
@@ -339,7 +341,9 @@ def _deposit_status(dispatcher, asset, script, netcode):
 
 
 def _validate_channel_unused(dispatcher, channel_address):
-    transactions = dispatcher.get("search_raw_transactions")(channel_address)
+    transactions = dispatcher.get("search_raw_transactions")(
+        address=channel_address, unconfirmed=True
+    )
     if len(transactions) > 0:
         raise exceptions.ChannelAlreadyUsed(channel_address, transactions)
 
@@ -468,7 +472,9 @@ def _can_spend_from_address(dispatcher, asset, address):
     # FIXME check if btc > fee and btc - fee > dust
 
     # can only spend if all txs confirmed
-    transactions = dispatcher.get("search_raw_transactions")(address)
+    transactions = dispatcher.get("search_raw_transactions")(
+        address=address, unconfirmed=True
+    )
     latest_confirms = transactions[-1].get("confirmations", 0)
     return latest_confirms > 0
 
@@ -481,7 +487,9 @@ def get_balance(dispatcher, asset, address):
     if not result:
         return 0, 0
     asset_balance = result[0]["quantity"]
-    utxos = dispatcher.get("get_unspent_txouts")(address)
+    utxos = dispatcher.get("get_unspent_txouts")(
+        address=address, unconfirmed=False
+    )
     btc_balance = sum(map(lambda utxo: util.to_satoshis(utxo["amount"]), utxos))
     return asset_balance, btc_balance
 
@@ -525,7 +533,10 @@ def _get_payout_recoverable(dispatcher, state, netcode):
         delay_time = scripts.get_commit_delay_time(script)
         address = util.script_address(script, netcode=netcode)
         if _can_spend_from_address(dispatcher, state["asset"], address):
-            for utxo in dispatcher.get("get_unspent_txouts")(address):
+            utxos = dispatcher.get("get_unspent_txouts")(
+                address=address, unconfirmed=False
+            )
+            for utxo in utxos:
                 if utxo["confirmations"] >= delay_time:
                     _scripts.append(script)
     return _scripts
@@ -595,11 +606,15 @@ def _find_spend_secret(dispatcher, state, netcode):
     for commit in state["commits_active"] + state["commits_revoked"]:
         script = commit["script"]
         address = util.script_address(script, netcode=netcode)
-        transactions = dispatcher.get("search_raw_transactions")(address)
+        transactions = dispatcher.get("search_raw_transactions")(
+            address=address, unconfirmed=True
+        )
         if len(transactions) == 1:
             continue  # only the commit, no payout
         for transaction in transactions:
-            _spend_secret = scripts.get_spend_secret(transaction["hex"], script)
+            _spend_secret = scripts.get_spend_secret(
+                transaction["hex"], script
+            )
             if _spend_secret is not None:
                 return _spend_secret
     return None
