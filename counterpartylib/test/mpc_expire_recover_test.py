@@ -93,6 +93,8 @@ def test_expire_recover_xcp(server_db):
 
     # create blocks until deposit expired
     while util.api("mpc_deposit_ttl", {"state": alice_state}) > 0:
+        recoverables = util.api("mpc_recoverables", {"state": alice_state})
+        assert(len(recoverables["expire"]) == 0)
         util_test.create_next_block(server_db)
 
     # ===== PAYER RECOVERS EXPIRED DEPOSIT =====
@@ -111,15 +113,15 @@ def test_expire_recover_xcp(server_db):
     assert alice_balance == 91950000000
     assert deposit_balance == 0
 
-    # FIXME deposit p2sh should have two transaction (fund and expire recover)
-    # deposit_transactions = util.api(
-    #     method="search_raw_transactions",
-    #     params={"address": DEPOSIT_ADDRESS, "unconfirmed": False}
-    # )
-    # assert len(deposit_transactions) == 2
+    # deposit p2sh should have two transaction (fund and expire recover)
+    deposit_transactions = util.api(
+        method="search_raw_transactions",
+        params={"address": DEPOSIT_ADDRESS, "unconfirmed": False}
+    )
+    assert len(deposit_transactions) == 2
 
 
 @pytest.mark.usefixtures("server_db")
 @pytest.mark.usefixtures("api_server")
 def test_expire_recover_btc(server_db):
-    pass  # FIXME test
+    pass  # TODO test
