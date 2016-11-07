@@ -10,6 +10,7 @@ from . import exceptions
 from micropayment_core import util
 from micropayment_core import keys
 from micropayment_core import scripts
+from counterpartylib.lib import backend
 from counterpartylib.lib import config
 
 
@@ -59,18 +60,16 @@ def get_published_commits(dispatcher, state, netcode):
 
 
 def make_deposit(dispatcher, asset, payer_pubkey, payee_pubkey,
-                 spend_secret_hash, expire_time, quantity,
-                 netcode, fee, regular_dust_size):
+                 spend_secret_hash, expire_time, quantity, netcode):
 
     # validate input
     _validate_deposit(dispatcher, asset, payer_pubkey, payee_pubkey,
-                      spend_secret_hash, expire_time, quantity,
-                      netcode, fee, regular_dust_size)
+                      spend_secret_hash, expire_time, quantity, netcode)
 
     # create deposit
     rawtx, script = _create_deposit(
         dispatcher, asset, payer_pubkey, payee_pubkey, spend_secret_hash,
-        expire_time, quantity, netcode, fee, regular_dust_size
+        expire_time, quantity, netcode
     )
 
     # setup initial state
@@ -116,7 +115,7 @@ def request_commit(dispatcher, state, quantity, revoke_secret_hash, netcode):
 
 
 def create_commit(dispatcher, state, quantity, revoke_secret_hash,
-                  delay_time, netcode, fee, regular_dust_size):
+                  delay_time, netcode):
 
     # validate input
     validate.is_state(dispatcher, state, netcode)
@@ -129,7 +128,7 @@ def create_commit(dispatcher, state, quantity, revoke_secret_hash,
     deposit_script = state["deposit_script"]
     rawtx, commit_script = _create_commit(
         dispatcher, state["asset"], deposit_script, quantity,
-        revoke_secret_hash, delay_time, netcode, fee, regular_dust_size
+        revoke_secret_hash, delay_time, netcode
     )
 
     # update state
@@ -253,7 +252,7 @@ def transferred_amount(dispatcher, state, netcode):
     return get_quantity(dispatcher, state["asset"], commit["rawtx"])
 
 
-def payouts(dispatcher, state, netcode, fee, regular_dust_size):
+def payouts(dispatcher, state, netcode):
 
     # validate input
     validate.is_state(dispatcher, state, netcode)
@@ -266,8 +265,8 @@ def payouts(dispatcher, state, netcode, fee, regular_dust_size):
         payee_pubkey = scripts.get_deposit_payee_pubkey(deposit_script)
         for script in recoverable_scripts:
             rawtx = _create_recover_commit(
-                dispatcher, state["asset"], payee_pubkey, script, "payout",
-                netcode, fee, regular_dust_size
+                dispatcher, state["asset"], payee_pubkey,
+                script, "payout", netcode
             )
             payouts.append({
                 "payout_rawtx": rawtx, "commit_script": script,
@@ -275,7 +274,7 @@ def payouts(dispatcher, state, netcode, fee, regular_dust_size):
     return payouts
 
 
-def recoverables(dispatcher, state, netcode, fee, regular_dust_size):
+def recoverables(dispatcher, state, netcode):
 
     # validate input
     validate.is_state(dispatcher, state, netcode)
@@ -289,8 +288,8 @@ def recoverables(dispatcher, state, netcode, fee, regular_dust_size):
     if len(revokable) > 0:
         for script, secret in revokable:
             rawtx = _create_recover_commit(
-                dispatcher, state["asset"], payer_pubkey, script, "revoke",
-                netcode, fee, regular_dust_size
+                dispatcher, state["asset"], payer_pubkey,
+                script, "revoke", netcode
             )
             recoverables["revoke"].append({
                 "revoke_rawtx": rawtx,
@@ -301,8 +300,8 @@ def recoverables(dispatcher, state, netcode, fee, regular_dust_size):
     # If deposit expired recover the coins!
     if _can_expire_recover(dispatcher, state, netcode):
         rawtx = _recover_deposit(
-            dispatcher, state["asset"], payer_pubkey, deposit_script,
-            "expire", netcode, fee, regular_dust_size
+            dispatcher, state["asset"], payer_pubkey,
+            deposit_script, "expire", netcode,
         )
         recoverables["expire"].append({
             "expire_rawtx": rawtx,
@@ -317,8 +316,8 @@ def recoverables(dispatcher, state, netcode, fee, regular_dust_size):
             _spend_secret = _find_spend_secret(dispatcher, state, netcode)
             if _spend_secret is not None:
                 rawtx = _recover_deposit(
-                    dispatcher, state["asset"], payer_pubkey, deposit_script,
-                    "change", netcode, fee, regular_dust_size
+                    dispatcher, state["asset"], payer_pubkey,
+                    deposit_script, "change", netcode
                 )
                 recoverables["change"].append({
                     "change_rawtx": rawtx,
@@ -382,8 +381,7 @@ def _validate_channel_unused(dispatcher, channel_address):
         raise exceptions.ChannelAlreadyUsed(channel_address, transactions)
 
 
-def _recover_tx(dispatcher, asset, dest_address, script, netcode, fee,
-                regular_dust_size, sequence):
+def _recover_tx(dispatcher, asset, dest_address, script, netcode, sequence):
 
     # get channel info
     src_address = util.script_address(script, netcode)
@@ -392,7 +390,7 @@ def _recover_tx(dispatcher, asset, dest_address, script, netcode, fee,
     # create expire tx
     rawtx = _create_tx(
         dispatcher, asset, src_address, dest_address, asset_balance,
-        btc_balance - fee, fee, regular_dust_size
+        btc_balance - _get_fee()
     )
 
     # prep for script compliance and signing
@@ -411,29 +409,27 @@ def _recover_tx(dispatcher, asset, dest_address, script, netcode, fee,
     return rawtx
 
 
-def _create_recover_commit(dispatcher, asset, pubkey, script, spend_type,
-                           netcode, fee, regular_dust_size):
+def _create_recover_commit(dispatcher, asset, pubkey, script,
+                           spend_type, netcode):
     dest_address = keys.address_from_pubkey(pubkey, netcode=netcode)
     delay_time = scripts.get_commit_delay_time(script)
-    return _recover_tx(dispatcher, asset, dest_address, script, netcode, fee,
-                       regular_dust_size, delay_time)
+    return _recover_tx(dispatcher, asset, dest_address, script,
+                       netcode, delay_time)
 
 
-def _recover_deposit(dispatcher, asset, pubkey, script, spend_type,
-                     netcode, fee, regular_dust_size):
+def _recover_deposit(dispatcher, asset, pubkey, script,
+                     spend_type, netcode):
     dest_address = keys.address_from_pubkey(pubkey, netcode=netcode)
     expire_time = scripts.get_deposit_expire_time(script)
     rawtx = _recover_tx(
-        dispatcher, asset, dest_address, script,
-        netcode, fee, regular_dust_size,
+        dispatcher, asset, dest_address, script, netcode,
         expire_time if spend_type == "expire" else None
     )
     return rawtx
 
 
 def _create_commit(dispatcher, asset, deposit_script, quantity,
-                   revoke_secret_hash, delay_time, netcode,
-                   fee, regular_dust_size):
+                   revoke_secret_hash, delay_time, netcode):
 
     # create script
     payer_pubkey = scripts.get_deposit_payer_pubkey(deposit_script)
@@ -449,25 +445,34 @@ def _create_commit(dispatcher, asset, deposit_script, quantity,
     dest_address = util.script_address(commit_script, netcode)
     asset_balance, btc_balance = get_balance(dispatcher, asset, src_address)
     if quantity == asset_balance:  # spend all btc as change tx not needed
-        extra_btc = btc_balance - fee
+        extra_btc = btc_balance - _get_fee()
     else:  # provide extra btc for future payout/revoke tx fees
-        extra_btc = (fee + regular_dust_size)
-    rawtx = _create_tx(dispatcher, asset, src_address, dest_address, quantity,
-                       extra_btc, fee, regular_dust_size)
+        extra_btc = (_get_fee() + _get_dust_size())
+    rawtx = _create_tx(dispatcher, asset, src_address, dest_address,
+                       quantity, extra_btc)
 
     return rawtx, commit_script
 
 
-def _get_fee_multaple(factor=1, fee_per_kb=config.DEFAULT_FEE_PER_KB,
-                      regular_dust_size=config.DEFAULT_REGULAR_DUST_SIZE):
-    # FIXME try to get current values from bitcond instead
-    future_tx_fee = fee_per_kb / 2  # mpc tx always < 512 bytes
-    return int((future_tx_fee + regular_dust_size) * factor)
+def _get_fee():
+    fee_per_kb = config.DEFAULT_FEE_PER_KB
+    if config.ESTIMATE_FEE_PER_KB:
+        estimated_fee_per_kb = backend.fee_per_kb(1)
+        if estimated_fee_per_kb is not None:
+            fee_per_kb = max(estimated_fee_per_kb, fee_per_kb)
+    return int(fee_per_kb / 2)
+
+
+def _get_dust_size():
+    return config.DEFAULT_REGULAR_DUST_SIZE
+
+
+def _get_fee_multaple(factor=1):
+    return int((_get_fee() + _get_dust_size()) * factor)
 
 
 def _create_deposit(dispatcher, asset, payer_pubkey, payee_pubkey,
-                    spend_secret_hash, expire_time, quantity, netcode, fee,
-                    regular_dust_size):
+                    spend_secret_hash, expire_time, quantity, netcode):
 
     script = scripts.compile_deposit_script(payer_pubkey, payee_pubkey,
                                             spend_secret_hash, expire_time)
@@ -476,20 +481,20 @@ def _create_deposit(dispatcher, asset, payer_pubkey, payee_pubkey,
     payer_address = keys.address_from_pubkey(payer_pubkey, netcode)
     extra_btc = _get_fee_multaple(3)  # for change + commit + recover tx
     rawtx = _create_tx(dispatcher, asset, payer_address, dest_address,
-                       quantity, extra_btc, fee, regular_dust_size)
+                       quantity, extra_btc)
     return rawtx, script
 
 
 def _create_tx(dispatcher, asset, source_address, dest_address, quantity,
-               extra_btc, fee, regular_dust_size):
+               extra_btc):
     assert(extra_btc >= 0)
     rawtx = dispatcher.get("create_send")(
         source=source_address,
         destination=dest_address,
         quantity=quantity,
         asset=asset,
-        regular_dust_size=(extra_btc or regular_dust_size),
-        fee=fee,
+        regular_dust_size=(extra_btc or _get_dust_size()),
+        fee=_get_fee(),
         disable_utxo_locks=True
     )
     assert(get_quantity(dispatcher, asset, rawtx) == quantity)
@@ -577,8 +582,7 @@ def _can_deposit_spend(dispatcher, state, netcode):
 
 
 def _validate_deposit(dispatcher, asset, payer_pubkey, payee_pubkey,
-                      spend_secret_hash, expire_time, quantity,
-                      netcode, fee, regular_dust_size):
+                      spend_secret_hash, expire_time, quantity, netcode):
 
     # validate untrusted input data
     validate.pubkey(payer_pubkey)
@@ -598,7 +602,7 @@ def _validate_deposit(dispatcher, asset, payer_pubkey, payee_pubkey,
                                            address, asset)
 
     # check btc balance
-    extra_btc = (fee + regular_dust_size) * 3
+    extra_btc = (_get_fee() + _get_dust_size()) * 3
     if btc_balance < extra_btc:
         raise exceptions.InsufficientFunds(extra_btc, btc_balance,
                                            address, "BTC")

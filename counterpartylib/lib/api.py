@@ -790,13 +790,11 @@ class APIServer(threading.Thread):
         def mpc_make_deposit(asset, payer_pubkey, payee_pubkey,
                              spend_secret_hash, expire_time, quantity):
             netcode = "XTN" if config.TESTNET else "BTC"
-            fee = 10000  # FIXME use fee_per_kb instead!
             # FIXME add fee_per_kb to args
             regular_dust_size = config.DEFAULT_REGULAR_DUST_SIZE
             return micropayments.make_deposit(
                 dispatcher, asset, payer_pubkey, payee_pubkey,
-                spend_secret_hash, expire_time, quantity, netcode, fee,
-                regular_dust_size
+                spend_secret_hash, expire_time, quantity, netcode
             )
 
         @dispatcher.add_method
@@ -816,11 +814,9 @@ class APIServer(threading.Thread):
         def mpc_create_commit(state, quantity, revoke_secret_hash,
                               delay_time=2):
             netcode = "XTN" if config.TESTNET else "BTC"
-            fee = 10000  # FIXME fee not needed, determind by depost btc - dust
-            regular_dust_size = config.DEFAULT_REGULAR_DUST_SIZE
             return micropayments.create_commit(
                 dispatcher, state, quantity, revoke_secret_hash,
-                delay_time, netcode, fee, regular_dust_size
+                delay_time, netcode
             )
 
         @dispatcher.add_method
@@ -855,18 +851,14 @@ class APIServer(threading.Thread):
         @dispatcher.add_method
         def mpc_payouts(state):
             netcode = "XTN" if config.TESTNET else "BTC"
-            fee = 10000  # FIXME fee not needed (fee = btc - dust)
             regular_dust_size = config.DEFAULT_REGULAR_DUST_SIZE
-            return micropayments.payouts(dispatcher, state, netcode,
-                                         fee, regular_dust_size)
+            return micropayments.payouts(dispatcher, state, netcode)
 
         @dispatcher.add_method
         def mpc_recoverables(state):
             netcode = "XTN" if config.TESTNET else "BTC"
-            fee = 10000  # FIXME fee not needed (fee = btc - dust)
             regular_dust_size = config.DEFAULT_REGULAR_DUST_SIZE
-            return micropayments.recoverables(dispatcher, state, netcode,
-                                              fee, regular_dust_size)
+            return micropayments.recoverables(dispatcher, state, netcode)
 
         @dispatcher.add_method
         def mpc_deposit_ttl(state, clearance=0):
