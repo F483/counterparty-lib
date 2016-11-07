@@ -790,7 +790,6 @@ class APIServer(threading.Thread):
         def mpc_make_deposit(asset, payer_pubkey, payee_pubkey,
                              spend_secret_hash, expire_time, quantity):
             netcode = "XTN" if config.TESTNET else "BTC"
-            # FIXME add fee_per_kb to args
             regular_dust_size = config.DEFAULT_REGULAR_DUST_SIZE
             return micropayments.make_deposit(
                 dispatcher, asset, payer_pubkey, payee_pubkey,

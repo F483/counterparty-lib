@@ -159,7 +159,7 @@ def add_commit(dispatcher, state, commit_rawtx, commit_script, netcode):
         dispatcher, commit_rawtx, state["asset"],
         state["deposit_script"], commit_script, netcode
     )
-    # FIXME how to validate/test that inputs are confirmed?
+    # TODO how to validate/test that inputs are confirmed?
 
     # update state
     script = commit_script
@@ -388,9 +388,14 @@ def _recover_tx(dispatcher, asset, dest_address, script, netcode, sequence):
     asset_balance, btc_balance = get_balance(dispatcher, asset, src_address)
 
     # create expire tx
-    rawtx = _create_tx(
-        dispatcher, asset, src_address, dest_address, asset_balance,
-        btc_balance - _get_fee()
+    rawtx = dispatcher.get("create_send")(
+        source=src_address,
+        destination=dest_address,
+        quantity=asset_balance,
+        asset=asset,
+        regular_dust_size=_get_dust_size(),
+        fee=btc_balance - _get_dust_size(),
+        disable_utxo_locks=True
     )
 
     # prep for script compliance and signing
@@ -444,13 +449,20 @@ def _create_commit(dispatcher, asset, deposit_script, quantity,
     src_address = util.script_address(deposit_script, netcode)
     dest_address = util.script_address(commit_script, netcode)
     asset_balance, btc_balance = get_balance(dispatcher, asset, src_address)
+    fee = int(btc_balance / 3)
     if quantity == asset_balance:  # spend all btc as change tx not needed
-        extra_btc = btc_balance - _get_fee()
+        extra_btc = btc_balance - fee
     else:  # provide extra btc for future payout/revoke tx fees
-        extra_btc = (_get_fee() + _get_dust_size())
-    rawtx = _create_tx(dispatcher, asset, src_address, dest_address,
-                       quantity, extra_btc)
-
+        extra_btc = int(btc_balance / 3)
+    rawtx = dispatcher.get("create_send")(
+        source=src_address,
+        destination=dest_address,
+        quantity=quantity,
+        asset=asset,
+        regular_dust_size=extra_btc,
+        fee=fee,
+        disable_utxo_locks=True
+    )
     return rawtx, commit_script
 
 
@@ -480,16 +492,8 @@ def _create_deposit(dispatcher, asset, payer_pubkey, payee_pubkey,
     _validate_channel_unused(dispatcher, dest_address)
     payer_address = keys.address_from_pubkey(payer_pubkey, netcode)
     extra_btc = _get_fee_multaple(3)  # for change + commit + recover tx
-    rawtx = _create_tx(dispatcher, asset, payer_address, dest_address,
-                       quantity, extra_btc)
-    return rawtx, script
-
-
-def _create_tx(dispatcher, asset, source_address, dest_address, quantity,
-               extra_btc):
-    assert(extra_btc >= 0)
     rawtx = dispatcher.get("create_send")(
-        source=source_address,
+        source=payer_address,
         destination=dest_address,
         quantity=quantity,
         asset=asset,
@@ -497,8 +501,7 @@ def _create_tx(dispatcher, asset, source_address, dest_address, quantity,
         fee=_get_fee(),
         disable_utxo_locks=True
     )
-    assert(get_quantity(dispatcher, asset, rawtx) == quantity)
-    return rawtx
+    return rawtx, script
 
 
 def _can_spend_from_address(dispatcher, asset, address):
@@ -507,8 +510,6 @@ def _can_spend_from_address(dispatcher, asset, address):
     asset_balance, btc_balance = get_balance(dispatcher, asset, address)
     if (asset_balance, btc_balance) == (0, 0):
         return False
-
-    # FIXME check if btc > fee and btc - fee > dust
 
     # can only spend if all txs confirmed
     transactions = dispatcher.get("search_raw_transactions")(
@@ -523,7 +524,6 @@ def _validate_transfer_quantity(dispatcher, state, quantity, netcode):
     confirms, asset_balance, btc_balance = _deposit_status(
         dispatcher, state["asset"], script, netcode
     )
-    # FIXME check btc balance > fee
     if quantity > asset_balance:
         raise exceptions.InvalidTransferQuantity(quantity, asset_balance)
 
@@ -602,7 +602,7 @@ def _validate_deposit(dispatcher, asset, payer_pubkey, payee_pubkey,
                                            address, asset)
 
     # check btc balance
-    extra_btc = (_get_fee() + _get_dust_size()) * 3
+    extra_btc = _get_fee_multaple(3)
     if btc_balance < extra_btc:
         raise exceptions.InsufficientFunds(extra_btc, btc_balance,
                                            address, "BTC")
