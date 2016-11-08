@@ -789,6 +789,22 @@ class APIServer(threading.Thread):
         @dispatcher.add_method
         def mpc_make_deposit(asset, payer_pubkey, payee_pubkey,
                              spend_secret_hash, expire_time, quantity):
+            """ Create deposit and setup initial payer state.
+
+            Args:
+                asset (str): Counterparty asset.
+                payer_pubkey (str): Hex encoded public key in sec format.
+                payee_pubkey (str): Hex encoded public key in sec format.
+                spend_secret_hash (str): Hex encoded hash160 of spend secret.
+                expire_time (int): Channel expire time in blocks.
+                quantity (int): Asset quantity for deposit.
+
+            Returns:
+                {
+                    "state": dict,   # Initial payer micropayment state object.
+                    "topublish": str # Unsigned deposit rawtx.
+                }
+            """
             netcode = "XTN" if config.TESTNET else "BTC"
             regular_dust_size = config.DEFAULT_REGULAR_DUST_SIZE
             return micropayments.make_deposit(
@@ -799,12 +815,33 @@ class APIServer(threading.Thread):
         @dispatcher.add_method
         def mpc_set_deposit(asset, deposit_script, expected_payee_pubkey,
                             expected_spend_secret_hash):
+            """ Setup initial payee state for given deposit.
+
+            Args:
+                asset (str): Counterparty asset.
+                deposit_script (str): Channel deposit p2sh script.
+                expected_payee_pubkey (str): To validate deposit script.
+                expected_spend_secret_hash (str): To validate deposit script.
+
+            Returns:
+                Initial payee micropayment state object.
+            """
             return micropayments.set_deposit(dispatcher, asset, deposit_script,
                                              expected_payee_pubkey,
                                              expected_spend_secret_hash)
 
         @dispatcher.add_method
         def mpc_request_commit(state, quantity, revoke_secret_hash):
+            """ Request commit for given quantity and revoke secret hash.
+
+            Args:
+                state (dict): Current payee channel state.
+                quantity (int): Asset quantity for commit.
+                revoke_secret_hash (str): Revoke secret hash for commit.
+
+            Returns:
+                Updated micropayment state object.
+            """
             netcode = "XTN" if config.TESTNET else "BTC"
             return micropayments.request_commit(dispatcher, state, quantity,
                                                 revoke_secret_hash, netcode)
@@ -812,6 +849,24 @@ class APIServer(threading.Thread):
         @dispatcher.add_method
         def mpc_create_commit(state, quantity, revoke_secret_hash,
                               delay_time=2):
+            """ Create commit for given quantity, revoke secret hash and delay time.
+
+            Args:
+                state (dict): Current payer channel state.
+                quantity (int): Asset quantity for commit.
+                revoke_secret_hash (str): Revoke secret hash for commit.
+                delay_time (int): Blocks payee must wait before payout.
+
+            Returns:
+                {
+                    "state": dict,  # update payer state obect
+                    "commit_script": str, # Hex P2SH needed to spend funds.
+                    "tosign": {
+                        "commit_rawtx": str, # Unsigned hex commit rawtx
+                        "deposit_script": str,  # Hex P2SH to sign commit.
+                    }
+                }
+            """
             netcode = "XTN" if config.TESTNET else "BTC"
             return micropayments.create_commit(
                 dispatcher, state, quantity, revoke_secret_hash,
@@ -820,12 +875,33 @@ class APIServer(threading.Thread):
 
         @dispatcher.add_method
         def mpc_add_commit(state, commit_rawtx, commit_script):
+            """ Add commit to channel state.
+
+            Args:
+                state (dict): Current payee channel state.
+                commit_rawtx (str): Commit transaction signed by payer.
+                commit_script (str): Commit p2sh script.
+
+            Returns:
+                Updated payee state object.
+            """
             netcode = "XTN" if config.TESTNET else "BTC"
             return micropayments.add_commit(dispatcher, state, commit_rawtx,
                                             commit_script, netcode)
 
         @dispatcher.add_method
         def mpc_revoke_hashes_until(state, quantity, surpass=False):
+            """ Get revoke secret hashes for commits above the given quantity.
+
+            Args:
+                state (dict): Current payee channel state.
+                quantity (int): Revoke secret hashes if commit gt quantity.
+                surpass (bool, default=False): Allow revoking below quantity
+                                               if between commits.
+
+            Returns:
+                List of hex encoded revoke secret hashes.
+            """
             netcode = "XTN" if config.TESTNET else "BTC"
             return micropayments.revoke_hashes_until(
                 dispatcher, state, quantity, surpass, netcode
@@ -833,40 +909,120 @@ class APIServer(threading.Thread):
 
         @dispatcher.add_method
         def mpc_revoke_all(state, secrets):
+            """ Revoke all commits matching the given secrets.
+
+            Args:
+                state (dict): Current payee/payer channel state.
+                secrets (list): List of hex encoded commit revoke secrets.
+
+            Returns:
+                Updated micropayment state object.
+            """
             netcode = "XTN" if config.TESTNET else "BTC"
             return micropayments.revoke_all(dispatcher, state,
                                             secrets, netcode)
 
         @dispatcher.add_method
         def mpc_highest_commit(state):
+            """ Get highest commit be signed/published for channel closing.
+
+            Args:
+                state (dict): Current payee channel state.
+
+            Returns:
+                None if no commits made, otherwise
+                {
+                    "commit_rawtx": str, # Unsigned hex commit rawtx
+                    "deposit_script": str,  # Hex P2SH to sign commit.
+                }
+            """
             netcode = "XTN" if config.TESTNET else "BTC"
             return micropayments.highest_commit(dispatcher, state, netcode)
 
         @dispatcher.add_method
         def mpc_transferred_amount(state):
+            """ Get asset quantity transferred from payer to payee.
+
+            Args:
+                state (dict): Current payee/payer channel state.
+
+            Returns:
+                Quantity transferred in satoshis.
+            """
             netcode = "XTN" if config.TESTNET else "BTC"
             return micropayments.transferred_amount(dispatcher, state, netcode)
 
         @dispatcher.add_method
         def mpc_payouts(state):
+            """ Find published commits and make payout transactions.
+
+            Args:
+                state (dict): Current payee channel state.
+
+            Returns:
+                [{
+                    "payout_rawtx": (str),  # Unsigned hex payout rawtx.
+                    "commit_script": (str)  # Hex commit P2SH script.
+                }]
+            """
             netcode = "XTN" if config.TESTNET else "BTC"
             regular_dust_size = config.DEFAULT_REGULAR_DUST_SIZE
             return micropayments.payouts(dispatcher, state, netcode)
 
         @dispatcher.add_method
         def mpc_recoverables(state):
+            """ Find and make recoverable change, timeout and revoke transactions.
+
+            Args:
+                state (dict): Current payee channel state.
+
+            Returns:
+                {
+                    "change": [{
+                        "change_rawtx": str, # Unsigned change rawtx.
+                        "deposit_script": str, # Deposit script for signing.
+                        "spend_secret": str, # Spend secret for siging.
+                    }],
+                    "expire": [{
+                        "expire_rawtx": str, # Unsigned expire rawtx.
+                        "deposit_script": str, # Deposit script for signing.
+                    }],
+                    "revoke": [{
+                        "revoke_rawtx": str, # Unsigned revoke rawtx.
+                        "commit_script": str, # Commit script for signing.
+                        "revoke_secret": str, # Revoke secret for signing.
+                    }]
+                }
+            """
             netcode = "XTN" if config.TESTNET else "BTC"
             regular_dust_size = config.DEFAULT_REGULAR_DUST_SIZE
             return micropayments.recoverables(dispatcher, state, netcode)
 
         @dispatcher.add_method
         def mpc_deposit_ttl(state, clearance=0):
+            """ Number of blocks until channel expired and can't be used.
+
+            Args:
+                state (dict): Current payee/payer channel state.
+                clearance (integer, default=0): Min clearance confirms needed.
+
+            Returns:
+                Number of blocks remaining until deposit is expired.
+            """
             netcode = "XTN" if config.TESTNET else "BTC"
             return micropayments.deposit_ttl(dispatcher, state,
                                              clearance, netcode)
 
         @dispatcher.add_method
-        def mpc_get_published_commits(state):
+        def mpc_published_commits(state):
+            """ Get commits published on the blockchain, including unconfirmed.
+
+            Args:
+                state (dict): Current payee/payer channel state.
+
+            Returns:
+                List of commit raw transactions.
+            """
             netcode = "XTN" if config.TESTNET else "BTC"
             return micropayments.get_published_commits(dispatcher, state,
                                                        netcode)

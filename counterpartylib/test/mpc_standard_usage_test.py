@@ -194,7 +194,7 @@ def test_usage_xcp(server_db):
     )
     util_test.insert_raw_transaction(signed_commit_rawtx, server_db)
 
-    commits = util.api("mpc_get_published_commits", {"state": alice_state})
+    commits = util.api("mpc_published_commits", {"state": alice_state})
     assert commits == [signed_commit_rawtx]
 
     # check balances after publishing commit

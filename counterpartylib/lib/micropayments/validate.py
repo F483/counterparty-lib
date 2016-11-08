@@ -211,6 +211,7 @@ def is_commit_rawtx(dispatcher, commit_rawtx, expected_asset,
         expected_src=deposit_address, expected_dest=commit_address,
         validate_signature=validate_signature
     )
+    # TODO check signed by payer
 
 
 def is_state(dispatcher, state_data, netcode):
